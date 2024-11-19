@@ -1,0 +1,36 @@
+
+running 18 tests
+test sas::alignment::tests::can_make_alignment_struct ... ok
+test sas::alignment::tests::test_alignment_from_u8 ... ok
+test sas::compression::tests::test_invalid_compression ... ok
+test sas::compression::tests::test_from_u8 ... ok
+test sas::compression::tests::test_truncated_compression ... ok
+test sas::compression::tests::test_rle_compression ... ok
+test sas::endianness::tests::test_endianness_from_u8 ... ok
+test sas::errors::tests::test_error ... ok
+test sas::header::tests::can_create_sas_header ... ok
+test sas::header::tests::can_get_magic_number_as_string ... FAILED
+test sas::metadata::tests::test_sas_metadata_builder ... ok
+test sas::header::tests::can_get_magic_number ... ok
+test sas::page_type::tests::test_page_type_from_u16 ... ok
+test sas_reader::tests::can_create_sas_reader ... ok
+test sas_reader::tests::can_get_file_contents ... ok
+test sas_reader::tests::can_get_file_contents_with_error ... ok
+test sas_reader::tests::can_read_sas7bdat_file ... ok
+test sas_reader::tests::can_validate_sas7bdat_file_format ... ok
+
+failures:
+
+---- sas::header::tests::can_get_magic_number_as_string stdout ----
+thread 'sas::header::tests::can_get_magic_number_as_string' panicked at src/sas/header.rs:88:9:
+assertion `left == right` failed
+  left: "\0\0\0\0\0\0\0\0\0\0\0\0��`�\u{14}\u{11}Ͻ�\u{8}\0\t�1�\u{18}\u{1f}\u{10}\u{11}"
+ right: "SAS FILE"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    sas::header::tests::can_get_magic_number_as_string
+
+test result: FAILED. 17 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
