@@ -26,13 +26,13 @@ mod tests {
     fn test_sas_metadata_builder() {
         let metadata = SasMetadata::builder()
             .endianness(Endianness::Big)
-            .alignment(Alignment::from_u8(0x00).unwrap())
+            .alignment(Alignment::from_u8(0x00))
             .compression(Compression::None)
             .build()
             .unwrap();
 
         assert_eq!(metadata.endianness, Endianness::Big);
-        assert_eq!(metadata.alignment, Alignment::from_u8(0x00).unwrap());
+        assert_eq!(metadata.alignment, Alignment::from_u8(0x00));
         assert_eq!(metadata.compression, Compression::None);
     }
 }

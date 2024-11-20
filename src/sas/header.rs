@@ -1,59 +1,78 @@
-const MAGIC_NUMBER: [u8; 32] = [
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xc2, 0xea, 0x81, 0x60,
-    0xb3, 0x14, 0x11, 0xcf, 0xbd, 0x92, 0x08, 0x00, 0x09, 0xc7, 0x31, 0x8c, 0x18, 0x1f, 0x10, 0x11,
-];
+use crate::sas::{header_unknowns::SasHeaderUnknowns, Alignment, Endianness, SasHeaderBinary};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct SasHeader {
-    pub bytes: Vec<u8>,
+    pub binary: SasHeaderBinary,
+    pub magic_number: Option<[u8; 32]>,
+    pub unknowns: Option<SasHeaderUnknowns>,
+    pub alignment: Option<(Alignment, Alignment)>,
+    pub endianness: Option<Endianness>,
+    pub sas_filename: Option<String>,
 }
 
 impl SasHeader {
     pub fn new(bytes: &[u8]) -> Self {
         SasHeader {
-            bytes: bytes.to_vec(),
+            binary: SasHeaderBinary::new(bytes),
+            magic_number: None,
+            unknowns: None,
+            alignment: None,
+            endianness: None,
+            sas_filename: None,
         }
     }
 
-    pub fn get_magic_number_from_header(&self) -> &[u8] {
-        &self.bytes[0..32]
+    pub fn bytes(&self) -> &[u8] {
+        &self.binary.bytes
     }
 
-    pub fn get_sas_file_string_from_header(&self) -> &[u8] {
-        &self.bytes[84..92]
+    pub fn read_magic_number(&mut self) {
+        let magic_number = self.binary.get_magic_number_from_header();
+        self.magic_number = Some(magic_number.try_into().unwrap());
     }
 
-    pub fn get_sas_file_from_header_as_str(&self) -> String {
-        String::from_utf8_lossy(self.get_sas_file_string_from_header())
-            .trim_end_matches('\0')
-            .to_string()
+    pub fn read_alignment(&mut self) {
+        // Note that alignment1 is a1 and alignment2 is a2
+        // and also a1 comes from the 2nd alignment byte in the header
+        // while a2 comes from the 1st alignment byte in the header
+        let alignment1: Alignment = Alignment {
+            value: self.binary.get_alignment_from_header2(),
+        };
+        let alignment2: Alignment = Alignment {
+            value: self.binary.get_alignment_from_header1(),
+        };
+
+        self.alignment = Some((alignment1, alignment2));
     }
 
-    pub fn get_sas_filename_from_header(&self) -> String {
-        String::from_utf8_lossy(&self.bytes[92..156])
-            .trim_end_matches('\0')
-            .trim_end()
-            .to_string()
-    }
-
-    pub fn validate_sas_file(&self) -> Result<(), String> {
-        let magic_number = self.get_magic_number_from_header();
-        let sas_file = self.get_sas_file_from_header_as_str();
-        let sas_filename = self.get_sas_filename_from_header();
-
-        if magic_number != MAGIC_NUMBER {
-            return Err("Invalid magic number".to_string());
+    pub fn is_u64_file_format(&mut self) -> bool {
+        if self.alignment.is_none() {
+            self.read_alignment();
         }
 
-        if sas_file != "SAS FILE" {
-            return Err("Invalid SAS file".to_string());
+        let alignment = self.alignment.unwrap();
+        alignment.1.value == 4
+    }
+
+    pub fn byte_controling_offset_before_timestamps(&mut self) -> u8 {
+        if self.alignment.is_none() {
+            self.read_alignment();
         }
 
-        if sas_filename.is_empty() {
-            return Err("Invalid SAS filename".to_string());
-        }
+        let alignment = self.alignment.unwrap();
+        alignment.0.value
+    }
 
-        Ok(())
+    pub fn read_endianness(&mut self) {
+        let endianness = self.binary.get_endianness_from_header();
+        self.endianness = Some(endianness);
+    }
+
+    pub fn read_unknowns(&mut self) {
+        let mut header_unknowns = SasHeaderUnknowns::new(self.bytes());
+        header_unknowns.read();
+
+        self.unknowns = Some(header_unknowns);
     }
 }
 
@@ -61,64 +80,151 @@ impl SasHeader {
 
 mod tests {
     use super::*;
+    use crate::sas::SasConstants;
 
     #[test]
     fn can_create_sas_header() {
         let bytes = include_bytes!("../../test/hadley.sas7bdat");
-        let header = SasHeader::new(bytes);
+        let sas_header1 = SasHeader::new(bytes);
+        let sas_header2 = SasHeader {
+            binary: SasHeaderBinary::new(bytes),
+            magic_number: None,
+            unknowns: None,
+            alignment: None,
+            endianness: None,
+            sas_filename: None,
+        };
 
-        assert_eq!(header.bytes, bytes);
+        assert_eq!(sas_header1, sas_header2);
     }
 
     #[test]
-    fn can_validate_sas_file() {
+    fn can_return_bytes() {
         let bytes = include_bytes!("../../test/hadley.sas7bdat");
-        let header = SasHeader::new(bytes);
+        let sas_header = SasHeader::new(bytes);
 
-        assert!(header.validate_sas_file().is_ok());
+        assert_eq!(sas_header.bytes(), bytes);
     }
 
     #[test]
-    fn can_get_magic_number_from_header() {
-        let expected: [u8; 32] = [
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xc2, 0xea,
-            0x81, 0x60, 0xb3, 0x14, 0x11, 0xcf, 0xbd, 0x92, 0x08, 0x00, 0x09, 0xc7, 0x31, 0x8c,
-            0x18, 0x1f, 0x10, 0x11,
-        ];
-
+    fn can_read_unknowns() {
         let bytes = include_bytes!("../../test/hadley.sas7bdat");
-        let header = SasHeader::new(bytes);
+        let mut sas_header = SasHeader::new(bytes);
+        sas_header.read_unknowns();
 
-        assert_eq!(header.get_magic_number_from_header(), &expected);
+        let header_unknowns = sas_header.unknowns.unwrap();
+        let mut struct_unknowns = SasHeaderUnknowns::new(bytes);
+
+        struct_unknowns.read();
+
+        assert_eq!(header_unknowns.bytes, bytes);
+        assert_eq!(header_unknowns, struct_unknowns);
     }
 
     #[test]
-    fn can_get_sas_file_from_header() {
+    fn can_read_magic_number() {
         let bytes = include_bytes!("../../test/hadley.sas7bdat");
-        let header = SasHeader::new(bytes);
+        let mut sas_header = SasHeader::new(bytes);
+        sas_header.read_magic_number();
 
-        assert_eq!(header.get_sas_file_string_from_header(), &bytes[84..92]);
+        let magic_number = sas_header.magic_number.unwrap();
+        let constants = SasConstants::new();
+
+        assert_eq!(magic_number, constants.magic_number);
     }
 
     #[test]
-    fn can_get_sas_file_from_header_as_string() {
+    fn can_read_alignment1() {
         let bytes = include_bytes!("../../test/hadley.sas7bdat");
-        let header = SasHeader::new(bytes);
+        let mut sas_header = SasHeader::new(bytes);
+        sas_header.read_alignment();
 
-        assert_eq!(
-            header.get_sas_file_from_header_as_str(),
-            "SAS FILE".to_string()
+        let alignment = sas_header.alignment.unwrap();
+
+        assert!(alignment.0 == Alignment::from_u8(0) || alignment.0 == Alignment::from_u8(0x33));
+        assert!(alignment.0.value == 0 || alignment.0.value == 4);
+    }
+
+    #[test]
+    fn can_read_alignment2() {
+        let bytes = include_bytes!("../../test/hadley.sas7bdat");
+        let mut sas_header = SasHeader::new(bytes);
+        sas_header.read_alignment();
+
+        let alignment = sas_header.alignment.unwrap();
+
+        assert!(alignment.1 == Alignment::from_u8(0) || alignment.1 == Alignment::from_u8(0x33));
+        assert!(alignment.1.value == 0 || alignment.1.value == 4);
+    }
+
+    #[test]
+    fn can_read_endianess() {
+        let bytes = include_bytes!("../../test/hadley.sas7bdat");
+        let mut sas_header = SasHeader::new(bytes);
+        sas_header.read_endianness();
+
+        let endianness = sas_header.endianness;
+
+        assert!(
+            endianness.unwrap() == Endianness::Big || endianness.unwrap() == Endianness::Little
         );
     }
 
     #[test]
-    fn can_get_sas_filename_from_header() {
-        let bytes = include_bytes!("../../test/hadley.sas7bdat");
-        let header = SasHeader::new(bytes);
+    fn test_is_u64_file_format() {
+        let mut bytes = vec![0_u8; 8192];
+        println!("bytes[32] before change: {:#x}", bytes[32]);
+        bytes[32] = 0x33; // This makes a2=4, so it's a u64 file format
+        println!("bytes[32] after change: {:#x}", bytes[32]);
 
+        let mut sas_header = SasHeader::new(bytes.as_slice());
+        sas_header.read_alignment();
+        println!("{:#?}", sas_header.alignment);
+
+        assert!(sas_header.is_u64_file_format());
+
+        let mut sas_header_without_explicitly_reading_alignment = SasHeader::new(bytes.as_slice());
+        assert!(sas_header_without_explicitly_reading_alignment.is_u64_file_format());
+
+        bytes[32] = 0x00; // This makes a2=0, so it's not a u64 file format
+        let mut non64_sas_header = SasHeader::new(bytes.as_slice());
+
+        assert!(!non64_sas_header.is_u64_file_format());
+    }
+
+    #[test]
+    fn test_byte_controling_offset_before_timestamps1() {
+        let mut bytes = vec![0_u8; 8192];
+        bytes[34] = 0x33; // This makes a1=4
+
+        let mut sas_header = SasHeader::new(bytes.as_slice());
+        sas_header.read_alignment();
+
+        assert_eq!(sas_header.byte_controling_offset_before_timestamps(), 4);
+    }
+
+    #[test]
+    fn test_byte_controling_offset_before_timestamps2() {
+        let mut bytes = vec![0_u8; 8192];
+        bytes[34] = 0x33; // This makes a1=4
+
+        let mut sas_header_without_explicitly_reading_alignment = SasHeader::new(bytes.as_slice());
         assert_eq!(
-            header.get_sas_filename_from_header().to_lowercase(),
-            "hadley".to_string()
+            sas_header_without_explicitly_reading_alignment
+                .byte_controling_offset_before_timestamps(),
+            4
+        );
+    }
+
+    #[test]
+    fn test_byte_controling_offset_before_timestamps3() {
+        let bytes = vec![0_u8; 8192];
+        // bytes[34] = 0x00; // Do not change a1, so it's 0
+
+        let mut sas_header_with_no_timestamp_offset = SasHeader::new(bytes.as_slice());
+        assert_eq!(
+            sas_header_with_no_timestamp_offset.byte_controling_offset_before_timestamps(),
+            0
         );
     }
 }
