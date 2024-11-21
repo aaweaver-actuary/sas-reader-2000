@@ -133,6 +133,10 @@ impl SasHeaderBinary {
 
 mod tests {
 
+    use chrono::NaiveDateTime;
+
+    use crate::util::time::get_sas_epoch;
+
     use super::*;
 
     #[test]
@@ -401,17 +405,24 @@ mod tests {
     #[test]
     fn can_get_inserted_ts_from_midnight_11_26_1987() {
         let mut bytes = vec![0_u8; 8192];
-        bytes[164] = 0x00;
-        bytes[165] = 0x00;
-        bytes[166] = 0x00;
-        bytes[167] = 0x00;
-        bytes[168] = 0x00;
-        bytes[169] = 0x00;
-        bytes[170] = 0x00;
-        bytes[171] = 0x00;
+
+        // 1987-11-26 00:00:00
+        let end_ts = NaiveDateTime::parse_from_str("1987-11-26 00:00:00", "%Y-%m-%d %H:%M:%S")
+            .unwrap()
+            .and_utc()
+            .timestamp();
+
+        // 1960-01-01 00:00:00
+        let start_ts = get_sas_epoch().and_utc().timestamp();
+        
+        let n_seconds: u64 = end_ts as u64 - start_ts as u64;
+
+        // insert the timestamp at offset 164
+        bytes[164..172].copy_from_slice(&n_seconds.to_le_bytes());
 
         let header = SasHeaderBinary::new(&bytes);
         let ts = header.get_creation_timestamp();
-        assert_eq!(ts, 0);
+        assert_eq!(ts, n_seconds);
+
     }
 }

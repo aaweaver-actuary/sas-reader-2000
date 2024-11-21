@@ -1,3 +1,5 @@
+pub mod time;
+
 pub fn is_twos_complement() -> bool {
     let mut is_twos_complement = false;
     let x = -1i32;

@@ -4,4 +4,5 @@ name   ="sas-reader-2000"
 version="0.1.0"
 
 [dependencies]
+chrono = "0.4.38"
 derive_builder="0.20.2"
