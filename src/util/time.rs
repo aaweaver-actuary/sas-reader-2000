@@ -22,17 +22,21 @@ pub fn datetime_to_sas_timestamp(datetime: NaiveDateTime) -> f64 {
 #[cfg(test)]
 
 mod tests {
+
     use super::*;
+    use assert_approx_eq::assert_approx_eq;
 
     #[test]
     fn can_get_sas_epoch() {
         let sas_epoch = get_sas_epoch();
-        assert_eq!(
-            sas_epoch,
+        assert_approx_eq!(
+            sas_epoch.and_utc().timestamp_subsec_nanos() as f64,
             NaiveDate::from_ymd_opt(1960, 1, 1)
                 .unwrap()
-                .and_hms_opt(0, 0, 0)
+                .and_hms_milli_opt(0, 0, 0, 0)
                 .unwrap()
+                .and_utc()
+                .timestamp_subsec_nanos() as f64
         );
     }
 
@@ -40,12 +44,14 @@ mod tests {
     fn can_convert_sas_timestamp_to_datetime() {
         let timestamp = 0.0;
         let datetime = sas_timestamp_to_datetime(timestamp);
-        assert_eq!(
-            datetime,
+        assert_approx_eq!(
+            datetime.and_utc().timestamp_subsec_nanos() as f64,
             NaiveDate::from_ymd_opt(1960, 1, 1)
                 .unwrap()
                 .and_hms_opt(0, 0, 0)
                 .unwrap()
+                .and_utc()
+                .timestamp_subsec_nanos() as f64
         );
     }
 
