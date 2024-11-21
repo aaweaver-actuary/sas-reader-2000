@@ -74,8 +74,8 @@ pub enum Encoding {
 }
 
 impl Encoding {
-    pub fn from_code(code: u8) -> Result<Self, String> {
-        let output = match code {
+    pub fn from_u8(value: u8) -> Result<Self, String> {
+        let output = match value {
             0 => Encoding::Windows1252,
             20 => Encoding::Utf8,
             28 => Encoding::UsAscii,
@@ -164,13 +164,26 @@ mod tests {
 
     #[test]
     fn can_get_encoding_from_code() {
-        let encoding = Encoding::from_code(0);
+        let encoding = Encoding::from_u8(0);
         assert_eq!(encoding, Ok(Encoding::Windows1252));
     }
 
     #[test]
+    fn test_code_for_utf8() {
+        let encoding = Encoding::from_u8(20);
+        assert_eq!(encoding, Ok(Encoding::Utf8));
+    }
+
+    #[test]
+    fn test_code_for_iso8859_1() {
+        // AKA Latin-1
+        let encoding = Encoding::from_u8(29);
+        assert_eq!(encoding, Ok(Encoding::Iso8859_1));
+    }
+
+    #[test]
     fn can_get_encoding_from_invalid_code() {
-        let encoding = Encoding::from_code(250);
+        let encoding = Encoding::from_u8(250);
         assert_eq!(encoding, Err("Invalid encoding code".to_string()));
     }
 }

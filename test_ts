@@ -1,0 +1,88 @@
+
+running 70 tests
+test sas::compression::tests::test_from_u8 ... ok
+test sas::compression::tests::test_rle_compression ... ok
+test sas::errors::tests::test_error ... ok
+test sas::compression::tests::test_invalid_compression ... ok
+test sas::header::alignment::tests::can_make_alignment_struct ... ok
+test sas::compression::tests::test_truncated_compression ... ok
+test sas::header::alignment::tests::test_alignment_from_u8 ... ok
+test sas::header::binary::tests::can_get_os_type_from_header_when_unix ... ok
+test sas::header::binary::tests::can_get_character_encoding_when_latin1 ... ok
+test sas::header::binary::tests::can_get_os_type_from_header_when_windows ... ok
+test sas::header::binary::tests::can_get_creation_timestamp_offset_when_a1_eq_4 ... ok
+test sas::header::binary::tests::can_get_creation_timestamp_offset_when_a1_eq_0 ... ok
+test sas::header::binary::tests::can_validate_positions_56_to_64_when_actually_invalid ... ok
+test sas::header::binary::tests::can_get_sas_filename_from_header ... ok
+test sas::header::binary::tests::can_get_alignment_from_header1 ... ok
+test sas::header::binary::tests::can_get_alignment_from_header2 ... ok
+test sas::header::binary::tests::can_get_creation_timestamp ... FAILED
+test sas::header::binary::tests::can_create_sas_header ... ok
+test sas::header::binary::tests::can_validate_positions_56_to_64_when_actually_valid ... ok
+test sas::header::binary::tests::cannot_get_os_type_from_header_when_invalid - should panic ... ok
+test sas::header::binary::tests::test_get_a1_when_it_should_be_4 ... ok
+test sas::header::binary::tests::test_get_a1_when_it_should_be_0 ... ok
+test sas::header::binary::tests::test_get_a2_when_it_should_be_4 ... ok
+test sas::header::binary::tests::test_get_a2_when_it_should_be_0 ... ok
+test sas::header::encoding::tests::can_get_encoding_from_code ... ok
+test sas::header::binary::tests::can_get_sas_file_from_header ... ok
+test sas::header::binary::tests::can_get_endianness_from_header ... ok
+test sas::header::encoding::tests::can_get_encoding_from_invalid_code ... ok
+test sas::header::binary::tests::can_get_sas_file_from_header_as_string ... ok
+test sas::header::binary::tests::can_validate_sas_file ... ok
+test sas::header::endianness::tests::test_endianness_from_u8_when_valid ... ok
+test sas::header::endianness::tests::test_endianness_from_u8_panics_when_invalid_code_unwrapped - should panic ... ok
+test sas::header::file_type::tests::can_make_file_type_enum ... ok
+test sas::header::encoding::tests::test_code_for_iso8859_1 ... ok
+test sas::header::file_type::tests::test_file_type_from_str_when_catalog ... ok
+test sas::header::file_type::tests::test_file_type_from_str_when_data ... ok
+test sas::header::binary::tests::can_get_character_encoding ... ok
+test sas::header::binary::tests::can_get_ascii_file_type_from_header ... ok
+test sas::header::file_type::tests::test_file_type_from_str_when_unknown - should panic ... ok
+test sas::header::os_type::tests::can_make_os_type_enum ... ok
+test sas::header::binary::tests::can_get_magic_number_from_header ... ok
+test sas::header::encoding::tests::test_code_for_utf8 ... ok
+test sas::header::os_type::tests::test_os_type_from_u8_when_unknown - should panic ... ok
+test sas::header::os_type::tests::test_os_type_from_u8_when_windows ... ok
+test sas::header::tests::can_get_character_encoding ... ok
+test sas::header::os_type::tests::test_os_type_from_u8_when_unix ... ok
+test sas::header::tests::can_read_endianess ... ok
+test sas::header::tests::can_read_magic_number ... ok
+test sas::header::tests::test_byte_controling_offset_before_timestamps1 ... ok
+test sas::header::tests::can_return_bytes ... ok
+test sas::header::tests::test_byte_controling_offset_before_timestamps2 ... ok
+test sas::header::tests::test_byte_controling_offset_before_timestamps3 ... ok
+test sas::header::tests::test_is_u64_file_format ... ok
+test sas::header::tests::can_read_alignment2 ... ok
+test sas_reader::tests::can_create_sas_reader ... ok
+test sas::header::unknowns::tests::test_insert_to_unknowns ... ok
+test sas_reader::tests::can_get_file_contents ... ok
+test sas::header::unknowns::tests::test_make_inner_hash_map ... ok
+test sas_reader::tests::can_read_sas7bdat_file ... ok
+test sas_reader::tests::can_get_file_contents_with_error ... ok
+test util::tests::test_is_little_endian ... ok
+test sas::header::unknowns::tests::test_sas_header_unknowns_new ... ok
+test util::tests::test_is_twos_complement ... ok
+test sas::header::unknowns::tests::test_insert_range ... ok
+test sas_reader::tests::can_validate_sas7bdat_file_format ... ok
+test sas::header::unknowns::tests::test_read ... ok
+test sas::page_type::tests::test_page_type_from_u16 ... ok
+test sas::header::tests::can_read_alignment1 ... ok
+test sas::header::tests::can_create_sas_header ... ok
+test sas::header::tests::can_read_unknowns ... ok
+
+failures:
+
+---- sas::header::binary::tests::can_get_creation_timestamp stdout ----
+thread 'sas::header::binary::tests::can_get_creation_timestamp' panicked at src/sas/header/binary.rs:398:9:
+assertion `left == right` failed
+  left: 4745081191338971496
+ right: 123
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    sas::header::binary::tests::can_get_creation_timestamp
+
+test result: FAILED. 69 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+

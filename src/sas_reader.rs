@@ -1,4 +1,3 @@
-use crate::sas::SasHeaderBinary;
 use std::fs::File;
 use std::io::prelude::*;
 

@@ -1,4 +1,18 @@
-use crate::sas::{header_unknowns::SasHeaderUnknowns, Alignment, Endianness, SasHeaderBinary};
+pub mod alignment;
+pub mod binary;
+pub mod encoding;
+pub mod endianness;
+pub mod unknowns;
+pub mod os_type;
+pub mod file_type;
+
+pub use alignment::Alignment;
+pub use binary::SasHeaderBinary;
+pub use os_type::OsType;
+pub use encoding::Encoding;
+pub use endianness::Endianness;
+pub use unknowns::SasHeaderUnknowns;
+pub use file_type::FileType;
 
 #[derive(Debug, PartialEq)]
 pub struct SasHeader {
@@ -7,6 +21,7 @@ pub struct SasHeader {
     pub unknowns: Option<SasHeaderUnknowns>,
     pub alignment: Option<(Alignment, Alignment)>,
     pub endianness: Option<Endianness>,
+    pub encoding: Option<Encoding>,
     pub sas_filename: Option<String>,
 }
 
@@ -18,6 +33,7 @@ impl SasHeader {
             unknowns: None,
             alignment: None,
             endianness: None,
+            encoding: None,
             sas_filename: None,
         }
     }
@@ -65,7 +81,10 @@ impl SasHeader {
 
     pub fn read_endianness(&mut self) {
         let endianness = self.binary.get_endianness_from_header();
-        self.endianness = Some(endianness);
+        match endianness {
+            Ok(endianness) => self.endianness = Some(endianness),
+            Err(e) => panic!("{}", e),
+        }
     }
 
     pub fn read_unknowns(&mut self) {
@@ -73,6 +92,14 @@ impl SasHeader {
         header_unknowns.read();
 
         self.unknowns = Some(header_unknowns);
+    }
+
+    pub fn read_character_encoding(&mut self) {
+        let encoding = self.binary.get_character_encoding_from_header();
+        match encoding {
+            Ok(encoding) => self.encoding = Some(encoding),
+            Err(e) => panic!("{}", e),
+        }
     }
 }
 
@@ -84,7 +111,7 @@ mod tests {
 
     #[test]
     fn can_create_sas_header() {
-        let bytes = include_bytes!("../../test/hadley.sas7bdat");
+        let bytes = include_bytes!("../../../test/hadley.sas7bdat");
         let sas_header1 = SasHeader::new(bytes);
         let sas_header2 = SasHeader {
             binary: SasHeaderBinary::new(bytes),
@@ -92,6 +119,7 @@ mod tests {
             unknowns: None,
             alignment: None,
             endianness: None,
+            encoding: None,
             sas_filename: None,
         };
 
@@ -100,7 +128,7 @@ mod tests {
 
     #[test]
     fn can_return_bytes() {
-        let bytes = include_bytes!("../../test/hadley.sas7bdat");
+        let bytes = include_bytes!("../../../test/hadley.sas7bdat");
         let sas_header = SasHeader::new(bytes);
 
         assert_eq!(sas_header.bytes(), bytes);
@@ -108,7 +136,7 @@ mod tests {
 
     #[test]
     fn can_read_unknowns() {
-        let bytes = include_bytes!("../../test/hadley.sas7bdat");
+        let bytes = include_bytes!("../../../test/hadley.sas7bdat");
         let mut sas_header = SasHeader::new(bytes);
         sas_header.read_unknowns();
 
@@ -123,7 +151,7 @@ mod tests {
 
     #[test]
     fn can_read_magic_number() {
-        let bytes = include_bytes!("../../test/hadley.sas7bdat");
+        let bytes = include_bytes!("../../../test/hadley.sas7bdat");
         let mut sas_header = SasHeader::new(bytes);
         sas_header.read_magic_number();
 
@@ -135,7 +163,7 @@ mod tests {
 
     #[test]
     fn can_read_alignment1() {
-        let bytes = include_bytes!("../../test/hadley.sas7bdat");
+        let bytes = include_bytes!("../../../test/hadley.sas7bdat");
         let mut sas_header = SasHeader::new(bytes);
         sas_header.read_alignment();
 
@@ -147,7 +175,7 @@ mod tests {
 
     #[test]
     fn can_read_alignment2() {
-        let bytes = include_bytes!("../../test/hadley.sas7bdat");
+        let bytes = include_bytes!("../../../test/hadley.sas7bdat");
         let mut sas_header = SasHeader::new(bytes);
         sas_header.read_alignment();
 
@@ -159,7 +187,7 @@ mod tests {
 
     #[test]
     fn can_read_endianess() {
-        let bytes = include_bytes!("../../test/hadley.sas7bdat");
+        let bytes = include_bytes!("../../../test/hadley.sas7bdat");
         let mut sas_header = SasHeader::new(bytes);
         sas_header.read_endianness();
 
@@ -195,7 +223,7 @@ mod tests {
     #[test]
     fn test_byte_controling_offset_before_timestamps1() {
         let mut bytes = vec![0_u8; 8192];
-        bytes[34] = 0x33; // This makes a1=4
+        bytes[35] = 0x33; // This makes a1=4
 
         let mut sas_header = SasHeader::new(bytes.as_slice());
         sas_header.read_alignment();
@@ -206,7 +234,7 @@ mod tests {
     #[test]
     fn test_byte_controling_offset_before_timestamps2() {
         let mut bytes = vec![0_u8; 8192];
-        bytes[34] = 0x33; // This makes a1=4
+        bytes[35] = 0x33; // This makes a1=4
 
         let mut sas_header_without_explicitly_reading_alignment = SasHeader::new(bytes.as_slice());
         assert_eq!(
@@ -219,12 +247,23 @@ mod tests {
     #[test]
     fn test_byte_controling_offset_before_timestamps3() {
         let bytes = vec![0_u8; 8192];
-        // bytes[34] = 0x00; // Do not change a1, so it's 0
+        // bytes[35] = 0x00; // Do not change a1, so it's 0
 
         let mut sas_header_with_no_timestamp_offset = SasHeader::new(bytes.as_slice());
         assert_eq!(
             sas_header_with_no_timestamp_offset.byte_controling_offset_before_timestamps(),
             0
         );
+    }
+
+    #[test]
+    fn can_get_character_encoding() {
+        let mut bytes = vec![0_u8; 8192];
+        bytes[70] = 20; // This makes the character encoding to be UTF-8
+
+        let mut sas_header = SasHeader::new(bytes.as_slice());
+        sas_header.read_character_encoding();
+
+        assert_eq!(sas_header.encoding, Some(Encoding::Utf8));
     }
 }
