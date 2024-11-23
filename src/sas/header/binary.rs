@@ -44,7 +44,7 @@ impl SasHeaderBinary {
         Endianness::from_u8(self.bytes[37])
     }
 
-    pub fn get_os_type_from_header(&self) -> OsType {
+    pub fn get_os_type_from_header(&self) -> Result<OsType, String> {
         OsType::from_u8(self.bytes[39])
     }
 
@@ -95,6 +95,10 @@ impl SasHeaderBinary {
             return Err("Invalid SAS filename".to_string());
         }
 
+        if !self.is_56_to_64_valid() {
+            return Err("Invalid positions 56 to 64".to_string());
+        }
+
         Ok(())
     }
 
@@ -117,25 +121,92 @@ impl SasHeaderBinary {
         FileType::from_str(&raw_file_type)
     }
 
-    pub fn get_ts_offset(&self) -> usize {
-        let a1 = self.get_alignment_from_header2();
-        164 + a1 as usize
+    fn get_creation_ts_offset(&self) -> usize {
+        164 + self.get_a1() as usize
     }
 
-    pub fn get_creation_timestamp(&self) -> u64 {
-        let ts_offset = self.get_ts_offset();
+    pub fn get_creation_timestamp_from_header(&self) -> f64 {
+        let ts_offset = self.get_creation_ts_offset();
         let timestamp_bytes = &self.bytes[ts_offset..ts_offset + 8];
-        u64::from_le_bytes(timestamp_bytes.try_into().unwrap())
+        f64::from_le_bytes(timestamp_bytes.try_into().unwrap())
+    }
+
+    fn get_modification_ts_offset(&self) -> usize {
+        172 + self.get_a1() as usize
+    }
+
+    pub fn get_modification_timestamp_from_header(&self) -> f64 {
+        let ts_offset = self.get_modification_ts_offset();
+        let timestamp_bytes = &self.bytes[ts_offset..ts_offset + 8];
+        f64::from_le_bytes(timestamp_bytes.try_into().unwrap())
+    }
+
+    fn get_header_len_offset(&self) -> usize {
+        196 + self.get_a1() as usize
+    }
+
+    pub fn get_header_length_from_header(&self) -> usize {
+        let header_len_offset = self.get_header_len_offset();
+        let bytes = &self.bytes[header_len_offset..(header_len_offset + 4)];
+
+        i32::from_le_bytes(bytes.try_into().unwrap()) as usize
+    }
+
+    fn get_page_size_len_offset(&self) -> usize {
+        200 + self.get_a1() as usize
+    }
+
+    fn get_page_size_len_slice_range(&self) -> std::ops::Range<usize> {
+        let page_size_offset = self.get_page_size_len_offset();
+        let page_size_max_offset = page_size_offset + 4;
+        page_size_offset..page_size_max_offset
+    }
+
+    pub fn get_page_size_from_header(&self) -> usize {
+        let page_size_slice_range = self.get_page_size_len_slice_range();
+        let bytes = &self.bytes[page_size_slice_range];
+
+        i32::from_le_bytes(bytes.try_into().unwrap()) as usize
+    }
+
+    fn get_page_count_len_min_offset(&self) -> usize {
+        204 + self.get_a1() as usize
+    }
+
+    fn get_page_count_len(&self) -> usize {
+        self.get_a2() as usize
+    }
+
+    /// Get the page count from the header.
+    /// The page count is stored as either a 4-byte or 8-byte integer.
+    /// The length of the integer is determined by the value of `a2`.
+    /// If `a2` is 0, the page count is stored as a 4-byte integer.
+    /// If `a2` is 4, the page count is stored as an 8-byte integer.
+    /// The page count is stored at offset 204 + `a1`.
+    /// The integer ranges from 204 + `a1` to 204 + `a1` + `a2`.
+    pub fn get_page_count_from_header(&self) -> usize {
+        let pc_min_offset = self.get_page_count_len_min_offset();
+        let pc_len = self.get_page_count_len();
+        let bytes = &self.bytes[pc_min_offset..pc_min_offset + pc_len];
+
+        match pc_len {
+            4 => i32::from_le_bytes(bytes.try_into().unwrap()) as usize,
+            8 => i64::from_le_bytes(bytes.try_into().unwrap()) as usize,
+            _ => panic!(
+                "Invalid page count length: got {}, expected 4 or 8.\nself.get_a2(): {}",
+                pc_len,
+                self.get_a2()
+            ),
+        }
     }
 }
 
 #[cfg(test)]
 
 mod tests {
-
-    use chrono::NaiveDateTime;
-
     use crate::util::time::get_sas_epoch;
+    use assert_approx_eq::assert_approx_eq;
+    use chrono::NaiveDateTime;
 
     use super::*;
 
@@ -235,7 +306,7 @@ mod tests {
         let header = SasHeaderBinary::new(bytes.as_slice());
 
         // 1 = Unix, 2 = Windows
-        assert_eq!(header.get_os_type_from_header(), OsType::Unix);
+        assert_eq!(header.get_os_type_from_header().unwrap(), OsType::Unix);
     }
 
     #[test]
@@ -246,7 +317,7 @@ mod tests {
         let header = SasHeaderBinary::new(bytes.as_slice());
 
         // 1 = Unix, 2 = Windows
-        assert_eq!(header.get_os_type_from_header(), OsType::Windows);
+        assert_eq!(header.get_os_type_from_header().unwrap(), OsType::Windows);
     }
 
     #[test]
@@ -260,7 +331,7 @@ mod tests {
         let header = SasHeaderBinary::new(bytes.as_slice());
 
         // 1 = Unix, 2 = Windows
-        header.get_os_type_from_header();
+        header.get_os_type_from_header().unwrap();
     }
 
     #[test]
@@ -376,7 +447,7 @@ mod tests {
         let a1 = header.get_a1();
         assert_eq!(a1, 0);
 
-        let ts_offset = header.get_ts_offset();
+        let ts_offset = header.get_creation_ts_offset();
         assert_eq!(ts_offset, 164 + a1 as usize);
     }
 
@@ -389,17 +460,8 @@ mod tests {
         let a1 = header.get_a1();
         assert_eq!(a1, 4);
 
-        let ts_offset = header.get_ts_offset();
+        let ts_offset = header.get_creation_ts_offset();
         assert_eq!(ts_offset, 164 + a1 as usize);
-    }
-
-    #[test]
-    fn can_get_creation_timestamp() {
-        let bytes = include_bytes!("../../../test/hadley.sas7bdat");
-        let header = SasHeaderBinary::new(bytes);
-
-        let ts = header.get_creation_timestamp();
-        assert_eq!(ts, 4745081191338971496);
     }
 
     #[test]
@@ -414,15 +476,212 @@ mod tests {
 
         // 1960-01-01 00:00:00
         let start_ts = get_sas_epoch().and_utc().timestamp();
-        
-        let n_seconds: u64 = end_ts as u64 - start_ts as u64;
+
+        let n_seconds: f64 = end_ts as f64 - start_ts as f64;
 
         // insert the timestamp at offset 164
         bytes[164..172].copy_from_slice(&n_seconds.to_le_bytes());
 
         let header = SasHeaderBinary::new(&bytes);
-        let ts = header.get_creation_timestamp();
-        assert_eq!(ts, n_seconds);
+        let ts = header.get_creation_timestamp_from_header();
+        assert_approx_eq!(ts, n_seconds);
+    }
 
+    #[test]
+    fn can_get_modification_timestamp_offset_when_a1_eq_0() {
+        let bytes = vec![0_u8; 8192];
+
+        let header = SasHeaderBinary::new(&bytes);
+        let a1 = header.get_a1();
+        assert_eq!(a1, 0);
+
+        let ts_offset = header.get_modification_ts_offset();
+        assert_eq!(ts_offset, 172 + a1 as usize);
+    }
+
+    #[test]
+    fn can_get_modification_timestamp_offset_when_a1_eq_4() {
+        let mut bytes = vec![0_u8; 8192];
+        bytes[35] = 0x33; // This makes a1=4
+
+        let header = SasHeaderBinary::new(&bytes);
+        let a1 = header.get_a1();
+        assert_eq!(a1, 4);
+
+        let ts_offset = header.get_modification_ts_offset();
+        assert_eq!(ts_offset, 172 + a1 as usize);
+    }
+
+    #[test]
+    fn can_get_header_length() {
+        let bytes = vec![0_u8; 8192];
+        let header = SasHeaderBinary::new(&bytes);
+        let header_len = header.get_header_length_from_header();
+
+        assert_eq!(header_len, 0);
+    }
+
+    #[test]
+    fn can_get_header_length_when_a1_eq_0_and_byte_200_eq_9() {
+        let mut bytes = vec![0_u8; 8192];
+        bytes[200] = 9; // This does not affect header length
+
+        let header = SasHeaderBinary::new(&bytes);
+        let header_len = header.get_header_length_from_header();
+
+        assert_eq!(header_len, 0);
+
+        bytes[196] = 9; // This makes header length = 9
+        let header = SasHeaderBinary::new(&bytes);
+        let header_len = header.get_header_length_from_header();
+
+        assert_eq!(header_len, 9);
+    }
+
+    #[test]
+    fn can_get_header_length_when_a1_eq_4_and_byte_200_eq_9() {
+        let mut bytes = vec![0_u8; 8192];
+        bytes[35] = 0x33; // This makes a1=4
+        bytes[200] = 9; // This makes header length = 9
+
+        let header = SasHeaderBinary::new(&bytes);
+        let header_len = header.get_header_length_from_header();
+
+        assert_eq!(header_len, 9);
+
+        bytes[200] = 0; // This resets header length to 0
+        bytes[196] = 9; // This does not affect header length
+
+        let header = SasHeaderBinary::new(&bytes);
+        let header_len = header.get_header_length_from_header();
+
+        assert_eq!(header_len, 0);
+    }
+
+    #[test]
+    fn can_get_header_len_when_a1_eq_0_and_len_forced_to_be_8192() {
+        let mut bytes = vec![0_u8; 8192];
+        bytes[196..200].copy_from_slice(&8192_i32.to_le_bytes());
+
+        let header = SasHeaderBinary::new(&bytes);
+        let header_len = header.get_header_length_from_header();
+
+        assert_eq!(header_len, 8192);
+    }
+
+    #[test]
+    fn can_get_header_len_when_a1_eq_4_and_len_forced_to_be_8192() {
+        let mut bytes = vec![0_u8; 8192];
+        bytes[35] = 0x33; // This makes a1=4
+
+        // Since a1=4, the header length is at offset 200,
+        // so this won't affect the header length:
+        bytes[196..200].copy_from_slice(&8192_i32.to_le_bytes());
+
+        let header = SasHeaderBinary::new(&bytes);
+        let header_len = header.get_header_length_from_header();
+
+        assert_eq!(header_len, 0);
+
+        // Now set the header length at offset 200
+        bytes[200..204].copy_from_slice(&8192_i32.to_le_bytes());
+
+        let header = SasHeaderBinary::new(&bytes);
+        let header_len = header.get_header_length_from_header();
+
+        assert_eq!(header_len, 8192);
+    }
+
+    #[test]
+    fn can_get_page_size_from_header_when_a1_eq_0() {
+        let mut bytes = vec![0_u8; 8192];
+        bytes[200..204].copy_from_slice(&20_i32.to_le_bytes());
+
+        let header = SasHeaderBinary::new(&bytes);
+        let page_size = header.get_page_size_from_header();
+
+        assert_eq!(page_size, 20);
+    }
+
+    #[test]
+    fn can_get_page_size_from_header_when_a1_eq_4() {
+        let mut bytes = vec![0_u8; 8192];
+        bytes[35] = 0x33; // This makes a1=4
+
+        // Since a1=4, the page size is at offset 204,
+        // so this won't affect the page size:
+        bytes[200..204].copy_from_slice(&20_i32.to_le_bytes());
+
+        let header = SasHeaderBinary::new(&bytes);
+        let page_size = header.get_page_size_from_header();
+
+        assert_eq!(page_size, 0);
+
+        // Now set the page size at offset 204
+        bytes[204..208].copy_from_slice(&20_i32.to_le_bytes());
+
+        let header = SasHeaderBinary::new(&bytes);
+        let page_size = header.get_page_size_from_header();
+
+        assert_eq!(page_size, 20);
+    }
+
+    fn test_page_count_a2_0(desired_page_count: i32, a1: u8) {
+        let mut bytes = vec![0_u8; 8192];
+        let a1_byte = if a1 == 4 { 0x33 } else { 0 };
+
+        bytes[35] = a1_byte;
+
+        bytes[204 + a1 as usize..208 + a1 as usize]
+            .copy_from_slice(&desired_page_count.to_le_bytes());
+
+        let header = SasHeaderBinary::new(&bytes);
+
+        let page_count_len = header.get_page_count_len();
+        println!("page_count_len: {}", page_count_len);
+
+        let a2_byte = bytes[32];
+        println!("a2_byte: {}", a2_byte);
+
+        let page_count = header.get_page_count_from_header();
+
+        assert_eq!(page_count, desired_page_count as usize);
+    }
+
+    fn test_page_count_a2_4(desired_page_count: i64, a1: u8) {
+        let mut bytes = vec![0_u8; 8192];
+        let a1_byte = if a1 == 4 { 0x33 } else { 0 };
+        let a2_byte = 0x33_u8;
+
+        bytes[35] = a1_byte;
+        bytes[32] = a2_byte;
+
+        bytes[204 + a1 as usize..212 + a1 as usize]
+            .copy_from_slice(&desired_page_count.to_le_bytes());
+
+        let header = SasHeaderBinary::new(&bytes);
+        let page_count = header.get_page_count_from_header();
+
+        assert_eq!(page_count, desired_page_count as usize);
+    }
+
+    #[test]
+    fn can_get_page_count_from_header_when_a1_0_a2_0_pagesize_20() {
+        test_page_count_a2_0(20, 0);
+    }
+
+    #[test]
+    fn can_get_page_count_from_header_when_a1_4_a2_0_pagesize_30() {
+        test_page_count_a2_0(30, 4);
+    }
+
+    #[test]
+    fn can_get_page_count_from_header_when_a1_0_a2_4_pagesize_40() {
+        test_page_count_a2_4(40, 0);
+    }
+
+    #[test]
+    fn can_get_page_count_from_header_when_a1_4_a2_4_pagesize_50() {
+        test_page_count_a2_4(50, 4);
     }
 }
