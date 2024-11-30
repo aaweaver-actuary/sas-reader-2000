@@ -1,4 +1,4 @@
-use crate::sas::{Encoding, Endianness, FileType, OsType, SasConstants};
+use crate::sas::{Encoding, Endianness, FileType, OsMaker, OsType, SasConstants};
 
 #[derive(Debug, PartialEq)]
 pub struct SasHeaderBinary {
@@ -45,7 +45,8 @@ impl SasHeaderBinary {
     }
 
     pub fn get_os_type_from_header(&self) -> Result<OsType, String> {
-        OsType::from_u8(self.bytes[39])
+        let char_value = self.bytes[39] as char;
+        OsType::from_u8(char_value as u8)
     }
 
     pub fn get_character_encoding_from_header(&self) -> Result<Encoding, String> {
@@ -174,7 +175,11 @@ impl SasHeaderBinary {
     }
 
     fn get_page_count_len(&self) -> usize {
-        self.get_a2() as usize
+        match self.get_a2() {
+            0 => 4,
+            4 => 8,
+            _ => panic!("Invalid a2 value: {}", self.get_a2()),
+        }
     }
 
     /// Get the page count from the header.
@@ -199,16 +204,94 @@ impl SasHeaderBinary {
             ),
         }
     }
+
+    pub fn get_sas_release_from_header(&self) -> String {
+        let a1 = self.get_a1() as usize;
+        let a2 = self.get_a2() as usize;
+        let sas_release_offset = 216 + a1 + a2;
+
+        let sas_release_bytes = &self.bytes[sas_release_offset..sas_release_offset + 8];
+        String::from_utf8_lossy(sas_release_bytes)
+            .trim_end_matches('\0')
+            .to_string()
+    }
+
+    pub fn get_host_sas_server_type_from_header(&self) -> String {
+        let a1 = self.get_a1() as usize;
+        let a2 = self.get_a2() as usize;
+        let host_sas_server_type_offset = 224 + a1 + a2;
+
+        let host_sas_server_type_bytes =
+            &self.bytes[host_sas_server_type_offset..host_sas_server_type_offset + 16];
+        String::from_utf8_lossy(host_sas_server_type_bytes)
+            .trim_end_matches('\0')
+            .to_string()
+    }
+
+    pub fn get_os_version_number_from_header(&self) -> Option<String> {
+        let a1 = self.get_a1() as usize;
+        let a2 = self.get_a2() as usize;
+        let os_version_number_start = 240 + a1 + a2;
+        let os_version_number_len = 16;
+        let os_version_number_end = os_version_number_start + os_version_number_len;
+
+        let os_version_number_bytes = &self.bytes[os_version_number_start..os_version_number_end];
+        let os_version_number = String::from_utf8_lossy(os_version_number_bytes)
+            .trim_end_matches('\0')
+            .to_string();
+
+        if self.get_os_type_from_header().unwrap() != OsType::Unix {
+            None
+        } else {
+            Some(os_version_number)
+        }
+    }
+
+    pub fn get_os_maker_or_version_from_header(&self) -> Option<OsMaker> {
+        let a1 = self.get_a1() as usize;
+        let a2 = self.get_a2() as usize;
+        let os_version_start = 256 + a1 + a2;
+        let os_version_len = 16;
+        let os_version_end = os_version_start + os_version_len;
+
+        let os_version_bytes = &self.bytes[os_version_start..os_version_end];
+        let os_version_str = String::from_utf8_lossy(os_version_bytes)
+            .trim_end_matches('\0')
+            .to_string();
+
+        let os_version = OsMaker::from_ascii(os_version_str);
+
+        if self.get_os_type_from_header().unwrap() != OsType::Unix {
+            None
+        } else {
+            match os_version {
+                Ok(os_version) => Some(os_version),
+                Err(_) => None,
+            }
+        }
+    }
 }
 
 #[cfg(test)]
-
 mod tests {
     use crate::util::time::get_sas_epoch;
     use assert_approx_eq::assert_approx_eq;
     use chrono::NaiveDateTime;
 
     use super::*;
+
+    fn fix_bytes_for_a1_4(bytes: &mut [u8]) {
+        bytes[35] = 0x33; // This makes a1=4
+    }
+
+    fn fix_bytes_for_a2_4(bytes: &mut [u8]) {
+        bytes[32] = 0x33; // This makes a2=4
+    }
+
+    fn header_from_test_file() -> SasHeaderBinary {
+        let bytes = include_bytes!("../../../test/hadley.sas7bdat");
+        SasHeaderBinary::new(bytes)
+    }
 
     #[test]
     fn can_create_sas_header() {
@@ -220,9 +303,7 @@ mod tests {
 
     #[test]
     fn can_validate_sas_file() {
-        let bytes = include_bytes!("../../../test/hadley.sas7bdat");
-        let header = SasHeaderBinary::new(bytes);
-
+        let header = header_from_test_file();
         assert!(header.validate_sas_file().is_ok());
     }
 
@@ -234,25 +315,20 @@ mod tests {
             0x18, 0x1f, 0x10, 0x11,
         ];
 
-        let bytes = include_bytes!("../../../test/hadley.sas7bdat");
-        let header = SasHeaderBinary::new(bytes);
-
+        let header = header_from_test_file();
         assert_eq!(header.get_magic_number_from_header(), &expected);
     }
 
     #[test]
     fn can_get_sas_file_from_header() {
-        let bytes = include_bytes!("../../../test/hadley.sas7bdat");
-        let header = SasHeaderBinary::new(bytes);
-
+        let header = header_from_test_file();
+        let bytes = &header.bytes;
         assert_eq!(header.get_sas_file_string_from_header(), &bytes[84..92]);
     }
 
     #[test]
     fn can_get_sas_file_from_header_as_string() {
-        let bytes = include_bytes!("../../../test/hadley.sas7bdat");
-        let header = SasHeaderBinary::new(bytes);
-
+        let header = header_from_test_file();
         assert_eq!(
             header.get_sas_file_from_header_as_str(),
             "SAS FILE".to_string()
@@ -261,9 +337,7 @@ mod tests {
 
     #[test]
     fn can_get_sas_filename_from_header() {
-        let bytes = include_bytes!("../../../test/hadley.sas7bdat");
-        let header = SasHeaderBinary::new(bytes);
-
+        let header = header_from_test_file();
         assert_eq!(
             header.get_sas_filename_from_header().to_lowercase(),
             "hadley".to_string()
@@ -272,8 +346,8 @@ mod tests {
 
     #[test]
     fn can_get_alignment_from_header1() {
-        let bytes = include_bytes!("../../../test/hadley.sas7bdat");
-        let header = SasHeaderBinary::new(bytes);
+        let header = header_from_test_file();
+        let bytes = &header.bytes;
         let expected = if bytes[32] == 0x33 { 4 } else { 0 };
 
         assert_eq!(header.get_alignment_from_header1(), expected);
@@ -281,8 +355,8 @@ mod tests {
 
     #[test]
     fn can_get_alignment_from_header2() {
-        let bytes = include_bytes!("../../../test/hadley.sas7bdat");
-        let header = SasHeaderBinary::new(bytes);
+        let header = header_from_test_file();
+        let bytes = &header.bytes;
         let expected = if bytes[35] == 0x33 { 4 } else { 0 };
 
         assert_eq!(header.get_alignment_from_header2(), expected);
@@ -290,8 +364,8 @@ mod tests {
 
     #[test]
     fn can_get_endianness_from_header() {
-        let bytes = include_bytes!("../../../test/hadley.sas7bdat");
-        let header = SasHeaderBinary::new(bytes);
+        let header = header_from_test_file();
+        let bytes = &header.bytes;
         let endianness_from_bytes = Endianness::from_u8(bytes[37]);
         let endianness_from_header = header.get_endianness_from_header();
 
@@ -301,7 +375,7 @@ mod tests {
     #[test]
     fn can_get_os_type_from_header_when_unix() {
         let mut bytes = vec![0_u8; 8192];
-        bytes[39] = 1;
+        bytes[39] = b'1';
 
         let header = SasHeaderBinary::new(bytes.as_slice());
 
@@ -312,7 +386,7 @@ mod tests {
     #[test]
     fn can_get_os_type_from_header_when_windows() {
         let mut bytes = vec![0_u8; 8192];
-        bytes[39] = 2;
+        bytes[39] = b'2';
 
         let header = SasHeaderBinary::new(bytes.as_slice());
 
@@ -326,7 +400,7 @@ mod tests {
     )]
     fn cannot_get_os_type_from_header_when_invalid() {
         let mut bytes = vec![0_u8; 8192];
-        bytes[39] = 3; // Invalid OS type -> should panic
+        bytes[39] = b'3'; // Invalid OS type -> should panic
 
         let header = SasHeaderBinary::new(bytes.as_slice());
 
@@ -371,9 +445,7 @@ mod tests {
 
     #[test]
     fn can_get_character_encoding() {
-        let bytes = include_bytes!("../../../test/hadley.sas7bdat");
-        let header = SasHeaderBinary::new(bytes);
-
+        let header = header_from_test_file();
         let encoding = header.get_character_encoding_from_header();
         assert_eq!(encoding, Ok(Encoding::Windows1252));
     }
@@ -391,9 +463,7 @@ mod tests {
 
     #[test]
     fn can_get_ascii_file_type_from_header() {
-        let bytes = include_bytes!("../../../test/hadley.sas7bdat");
-        let header = SasHeaderBinary::new(bytes);
-
+        let header = header_from_test_file();
         let raw_file_type = header.get_raw_ascii_file_type_from_header();
         assert_eq!(raw_file_type, Ok("DATA    ".to_string()));
 
@@ -413,7 +483,7 @@ mod tests {
     #[test]
     fn test_get_a1_when_it_should_be_4() {
         let mut bytes = vec![0_u8; 8192];
-        bytes[35] = 0x33; // This makes a1=4
+        fix_bytes_for_a1_4(&mut bytes);
 
         let header = SasHeaderBinary::new(&bytes);
         let a1 = header.get_a1();
@@ -683,5 +753,102 @@ mod tests {
     #[test]
     fn can_get_page_count_from_header_when_a1_4_a2_4_pagesize_50() {
         test_page_count_a2_4(50, 4);
+    }
+
+    #[test]
+    fn can_get_sas_release_from_header() {
+        let header = header_from_test_file();
+        let sas_release = header.get_sas_release_from_header();
+        let expected = "9.0401M1".to_string();
+        assert_eq!(sas_release, expected);
+    }
+
+    #[test]
+    fn can_get_host_sas_server_type_from_header() {
+        let header = header_from_test_file();
+        let host_sas_server_type = header.get_host_sas_server_type_from_header();
+        let expected = "X64_8PRO".to_string();
+        assert_eq!(host_sas_server_type, expected);
+    }
+
+    #[test]
+    fn can_get_os_version_number_from_header_when_not_unix() {
+        let header = header_from_test_file();
+        let os_version_number = header.get_os_version_number_from_header();
+        let expected = None;
+        assert_eq!(os_version_number, expected);
+    }
+
+    fn test_os_version_number(a1: u8, a2: u8) {
+        let mut bytes = vec![0_u8; 8192];
+        bytes[39] = b'1'; // Unix
+
+        if a1 == 4 {
+            fix_bytes_for_a1_4(&mut bytes);
+        }
+
+        if a2 == 4 {
+            fix_bytes_for_a2_4(&mut bytes);
+        }
+
+        let start: usize = 240 + a1 as usize + a2 as usize;
+        let end: usize = start + 16;
+        let range = start..end;
+        let padded_replacement_value = [
+            // "UNIX_IBM" padded with null bytes
+            b'U', b'N', b'I', b'X', b'_', b'I', b'B', b'M', 0, 0, 0, 0, 0, 0, 0, 0,
+        ];
+        bytes[range].copy_from_slice(&padded_replacement_value);
+
+        let header = SasHeaderBinary::new(&bytes);
+        let os_version_number = header.get_os_version_number_from_header();
+        let expected = Some("UNIX_IBM".to_string());
+        assert_eq!(os_version_number, expected);
+    }
+
+    #[test]
+    fn can_get_os_version_number_from_header_when_unix_a1_0_a2_0() {
+        test_os_version_number(0, 0);
+    }
+
+    #[test]
+    fn can_get_os_version_number_from_header_when_unix_a1_4_a2_0() {
+        test_os_version_number(4, 0);
+    }
+
+    #[test]
+    fn can_get_os_version_number_from_header_when_unix_a1_0_a2_4() {
+        test_os_version_number(0, 4);
+    }
+
+    #[test]
+    fn can_get_os_version_number_from_header_when_unix_a1_4_a2_4() {
+        test_os_version_number(4, 4);
+    }
+
+    #[test]
+    fn can_get_os_maker_or_version_from_header() {
+        let mut bytes = vec![0_u8; 8192];
+        let a1 = 4;
+        let a2 = 4;
+
+        fix_bytes_for_a1_4(bytes.as_mut_slice());
+        fix_bytes_for_a2_4(bytes.as_mut_slice());
+
+        let start: usize = 256 + a1 as usize + a2 as usize;
+        let end: usize = start + 16;
+        let range = start..end;
+
+        let padded_replacement_value = [
+            // "IBM" padded with null bytes
+            b'I', b'B', b'M', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        ];
+
+        bytes[range].copy_from_slice(&padded_replacement_value);
+
+        let header = SasHeaderBinary::new(&bytes);
+        let os_version = header.get_os_maker_or_version_from_header();
+        let expected = OsMaker::from_ascii("IBM".to_string()).unwrap();
+        assert_eq!(os_version, Some(expected));
     }
 }

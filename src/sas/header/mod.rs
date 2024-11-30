@@ -2,17 +2,19 @@ pub mod alignment;
 pub mod binary;
 pub mod encoding;
 pub mod endianness;
-pub mod unknowns;
-pub mod os_type;
 pub mod file_type;
+pub mod os_maker;
+pub mod os_type;
+pub mod unknowns;
 
 pub use alignment::Alignment;
 pub use binary::SasHeaderBinary;
-pub use os_type::OsType;
 pub use encoding::Encoding;
 pub use endianness::Endianness;
-pub use unknowns::SasHeaderUnknowns;
 pub use file_type::FileType;
+pub use os_maker::OsMaker;
+pub use os_type::OsType;
+pub use unknowns::SasHeaderUnknowns;
 
 #[derive(Debug, PartialEq)]
 pub struct SasHeader {

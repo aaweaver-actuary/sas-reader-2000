@@ -20,7 +20,6 @@ impl FileType {
     }
 }
 
-
 #[cfg(test)]
 
 mod tests {
@@ -47,9 +46,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "Unknown file type: invalid. Expected either 'data' or 'catalog'."
-    )]
+    #[should_panic(expected = "Unknown file type: invalid. Expected either 'data' or 'catalog'.")]
     fn test_file_type_from_str_when_unknown() {
         FileType::from_str("invalid").unwrap();
     }
